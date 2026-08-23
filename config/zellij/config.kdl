@@ -180,9 +180,6 @@ keybinds clear-defaults=true {
     shared_except "locked" "scroll" "search" "tmux" {
         bind "Ctrl b" { SwitchToMode "tmux"; }
     }
-    shared_except "locked" "scroll" "search" {
-        bind "Ctrl s" { SwitchToMode "scroll"; }
-    }
     shared_except "locked" "tab" {
         bind "Ctrl t" { SwitchToMode "tab"; }
     }
@@ -191,6 +188,9 @@ keybinds clear-defaults=true {
     }
     shared_except "locked" "resize" {
         bind "Alt r" { SwitchToMode "resize"; }
+    }
+    shared_except "locked" "entersearch" "search" {
+        bind "Alt s" { SwitchToMode "entersearch"; SearchInput 0; }
     }
     shared_except "normal" "locked" "entersearch" {
         bind "enter" { SwitchToMode "normal"; }
