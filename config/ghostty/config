@@ -1,0 +1,40 @@
+# Ghostty Configuration
+# Ported from Kitty / boop-config
+
+# Theme & Colors
+theme = charleston
+background-opacity = 1
+
+# Display & Contrast Enhancements for macOS
+font-thicken = true
+
+# Font & Display
+font-size = 14
+mouse-hide-while-typing = true
+scrollback-limit = 10000
+
+# Mouse & Multiplexer Behavior
+# Disable synthetic cursor-move sequence injection so clicking across Zellij panes switches focus cleanly
+cursor-click-to-move = false
+
+# Window Styling
+window-padding-x = 10
+window-padding-y = 10
+
+# macOS Option Key behavior: enable Option as Alt for Zellij shortcuts
+macos-option-as-alt = true
+
+# Unbind Ghostty default esc:b / esc:f mappings so Alt+Left/Right sends native Alt+Arrow sequences
+# (prevents Ghostty from sending ESC+f which triggers Zellij's Alt+f floating pane toggle)
+keybind = alt+arrow_left=unbind
+keybind = alt+arrow_right=unbind
+
+# Unbind Ghostty default intercepts so Option+Cmd+Arrow navigation passes to Zellij
+keybind = super+alt+arrow_up=unbind
+keybind = super+alt+arrow_down=unbind
+keybind = super+alt+arrow_left=unbind
+keybind = super+alt+arrow_right=unbind
+
+# Keybindings
+# Cmd+P runs the 'p' (cloud-proj) command to open the project selector
+keybind = super+p=text:p\n

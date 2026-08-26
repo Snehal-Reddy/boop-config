@@ -1,0 +1,26 @@
+# Charleston theme for Ghostty
+# High contrast color theme with low saturation and smooth colors
+
+background = #262b31
+foreground = #c5c8d3
+cursor-color = #ffffff
+cursor-text = #262b31
+selection-background = #b5bac8
+selection-foreground = #262b31
+
+palette = 0=#636363
+palette = 1=#cc6666
+palette = 2=#a9c476
+palette = 3=#d0ab3c
+palette = 4=#88abdc
+palette = 5=#b689bc
+palette = 6=#7fb2c8
+palette = 7=#acbcc3
+palette = 8=#686d75
+palette = 9=#e67172
+palette = 10=#8ec772
+palette = 11=#d9ba73
+palette = 12=#7b9ef0
+palette = 13=#f2a4db
+palette = 14=#5abfb5
+palette = 15=#b5bfe2
