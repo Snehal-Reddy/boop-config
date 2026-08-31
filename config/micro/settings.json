@@ -1,5 +1,7 @@
 {
     "clipboard": "terminal",
     "colorscheme": "gotham",
-    "cursorline": false
+    "cursorline": false,
+    "lsp.server": "rust=rust-analyzer",
+    "lsp.formatOnSave": true
 }
