@@ -3,5 +3,7 @@
     "colorscheme": "gotham",
     "cursorline": false,
     "lsp.server": "rust=rust-analyzer",
-    "lsp.formatOnSave": true
+    "lsp.formatOnSave": true,
+    "softwrap": true,
+    "wordwrap": true
 }

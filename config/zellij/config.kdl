@@ -169,6 +169,13 @@ keybinds clear-defaults=true {
         bind "Alt o" { MoveTab "right"; }
         bind "Alt p" { TogglePaneInGroup; }
         bind "Alt Shift p" { ToggleGroupMarking; }
+        bind "Alt Shift m" "Super Shift m" {
+            DumpScreen "/tmp/zellij-active-pane.txt"
+            Run "zellij-open-smart" "--from-keybind" {
+                floating true
+                close_on_exit true
+            }
+        }
         bind "Ctrl Shift q" { Quit; }
     }
     shared_except "locked" "move" {
@@ -631,7 +638,7 @@ osc8_hyperlinks true
 // in any pane - including one running on a remote machine over SSH - can
 // read the clipboard without the user being asked.
 // Default: false
-// dangerously_enable_paste_buffer_read false
+dangerously_enable_paste_buffer_read true
  
 // How to handle a nested Zellij session detected inside a pane.
 // Options:

@@ -5,6 +5,8 @@
 
 set -euo pipefail
 
+export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+
 existing=$(zellij list-sessions --short --no-formatting 2>/dev/null || true)
 
 choice=$(printf '%s\n' "$existing" | rofi -dmenu -p "workspace")

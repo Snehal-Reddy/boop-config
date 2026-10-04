@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# cloud-proj: Connect to Cloudtop Zellij Workspace from macOS
+
+set -euo pipefail
+
+HOST="snehalreddy.c.googlers.com"
+
+# Pass arguments directly to remote launcher if any (e.g. cloud-proj trusty)
+if [ $# -ge 1 ]; then
+    exec ssh -t "$HOST" "bash -l ~/.config/scripts/zellij-cloud-workspace.sh '$*'"
+else
+    exec ssh -t "$HOST" "bash -l ~/.config/scripts/zellij-cloud-workspace.sh"
+fi

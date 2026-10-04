@@ -1,0 +1,13 @@
+# leaf configuration file (~/.config/leaf/config.toml)
+
+# Built-in themes: arctic, forest, ocean, solarized-dark (or press Shift+T inside leaf)
+theme = "ocean"
+
+# Press Ctrl+E inside leaf to open the file in micro at the currently visible line
+editor = 'micro +{$line}'
+
+# Automatically watch and reload files when saved in micro
+watch = true
+
+# Keep recent files in history (accessible via `leaf -H` or `leaf -l`)
+file-history-length = 20

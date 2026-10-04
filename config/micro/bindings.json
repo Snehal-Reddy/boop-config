@@ -4,6 +4,8 @@
     "AltLeft": "WordLeft",
     "AltRight": "WordRight",
     "Alt-L": "lua:initlua.toggleWrap",
+    "Alt-m": "lua:initlua.previewMarkdown",
+    "Alt-M": "lua:initlua.previewMarkdownFloating",
     "F3": "FindNext",
     "ShiftF3": "FindPrevious"
 }
