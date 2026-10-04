@@ -1,11 +1,16 @@
 {
     "Alt-/": "lua:comment.comment",
-    "CtrlUnderscore": "lua:comment.comment",
+    "Alt-L": "lua:initlua.toggleWrap",
+    "Alt-M": "lua:initlua.previewMarkdownFloating",
+    "Alt-d": "command:definition",
+    "Alt-f": "command:format",
+    "Alt-k": "command:hover",
+    "Alt-m": "lua:initlua.previewMarkdown",
+    "Alt-r": "command:references",
     "AltLeft": "WordLeft",
     "AltRight": "WordRight",
-    "Alt-L": "lua:initlua.toggleWrap",
-    "Alt-m": "lua:initlua.previewMarkdown",
-    "Alt-M": "lua:initlua.previewMarkdownFloating",
+    "CtrlSpace": "command:lspcompletion",
+    "CtrlUnderscore": "lua:comment.comment",
     "F3": "FindNext",
     "ShiftF3": "FindPrevious"
 }

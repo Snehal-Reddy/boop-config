@@ -1,2 +1,5 @@
 # Local runtime state, not config
 config/micro/buffers/
+
+# Downloaded plugin code, not authored config
+config/micro/plug/
