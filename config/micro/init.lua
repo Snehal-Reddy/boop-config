@@ -1,9 +1,11 @@
 local shell = import("micro/shell")
 local go_os = import("os")
 
-function init()
-    local ok, linter = pcall(import, "linter")
-    if ok and linter ~= nil then
+-- Register rumdl with the built-in linter plugin.
+function postinit()
+    -- The linter plugin exposes itself as a global; import("linter") hands back
+    -- a table that panics on access in micro 2.x.
+    if type(linter) == "table" and type(linter.makeLinter) == "function" then
         linter.makeLinter("rumdl", "markdown", "rumdl", {"check", "%f"}, "%f:%l:%c: %m")
     end
 end
