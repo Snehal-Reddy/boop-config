@@ -232,7 +232,7 @@ assign [class="Google-chrome" window_type="normal"] $ws1
 assign [class="Cursor" window_type="normal"] $ws2
 
 # kitty is intentionally NOT assigned to a workspace - new windows should
-# open wherever they're launched from. Startup still targets $ws3 below.
+# open wherever they're launched from.
 
 # Assign windows with class 'Spotify' to workspace $ws5
 assign [class="Spotify" window_type="normal"] $ws5
@@ -244,7 +244,6 @@ assign [class="(?i)obsidian" window_type="normal"] $ws6
 # The assign rules above ensure they land on the correct workspace when they finish loading.
 exec --no-startup-id google-chrome-stable &
 exec --no-startup-id cursor &
-exec --no-startup-id i3-msg 'workspace $ws3; exec kitty' &
 exec --no-startup-id spotify &
 exec --no-startup-id /home/boopop/Applications/Obsidian.AppImage &
 
