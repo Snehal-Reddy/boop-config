@@ -3,3 +3,7 @@ config/micro/buffers/
 
 # Downloaded plugin code, not authored config
 config/micro/plug/
+
+# Python bytecode cache
+__pycache__/
+*.py[cod]
