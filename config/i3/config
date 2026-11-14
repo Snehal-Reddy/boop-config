@@ -208,6 +208,10 @@ bindsym $mod+b exec --no-startup-id bluetoothctl info 10:D9:A2:4B:96:2F | grep -
 #bar {
 #        status_command SCRIPT_DIR=~/.config/i3blocks/scripts i3blocks
 #}
+# Reserve top gap for the Smoked Glass floating pill Polybar (offset-y 6 + height 30 + 4px margin)
+gaps top 40
+for_window [window_role="polybar-control"] floating enable, border pixel 0
+
 exec_always --no-startup-id $HOME/.config/polybar/launch.sh
 
 exec --no-startup-id autokey-gtk
