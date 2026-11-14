@@ -1,36 +1,27 @@
-#!/bin/sh
+#!/usr/bin/env bash
+# Lock screen using standard i3lock with a cached blurred Smoked Glass wallpaper
 
-BLANK='#00000000'
-CLEAR='#ffffff22'
-DEFAULT='#00897bE6'
-TEXT='#00897bE6'
-WRONG='#880000bb'
-VERIFYING='#00564dE6'
+CACHE_IMG="$HOME/.cache/lockscreen.png"
+WALLPAPER="$HOME/Downloads/minimal.jpg"
 
-i3lock \
---insidever-color=$CLEAR     \
---ringver-color=$VERIFYING   \
-\
---insidewrong-color=$CLEAR   \
---ringwrong-color=$WRONG     \
-\
---inside-color=$BLANK        \
---ring-color=$DEFAULT        \
---line-color=$BLANK          \
---separator-color=$DEFAULT   \
-\
---verif-color=$TEXT          \
---wrong-color=$TEXT          \
---time-color=$TEXT           \
---date-color=$TEXT           \
---layout-color=$TEXT         \
---keyhl-color=$WRONG         \
---bshl-color=$WRONG          \
-\
---screen 1                   \
---blur 9                     \
---clock                      \
---indicator                  \
---time-str="%H:%M:%S"        \
---date-str="%A, %Y-%m-%d"       \
---keylayout 1                \
+if [ -f "$WALLPAPER" ]; then
+    if [ ! -f "$CACHE_IMG" ] || [ "$WALLPAPER" -nt "$CACHE_IMG" ]; then
+        python3 - "$WALLPAPER" "$CACHE_IMG" <<'EOF'
+import sys
+from PIL import Image, ImageEnhance, ImageFilter
+
+src, dst = sys.argv[1], sys.argv[2]
+img = Image.open(src).convert("RGB")
+img = img.resize((2560, 1440), Image.Resampling.LANCZOS)
+img = img.filter(ImageFilter.GaussianBlur(radius=18))
+img = ImageEnhance.Brightness(img).enhance(0.55)
+img.save(dst, "PNG")
+EOF
+    fi
+fi
+
+if [ -f "$CACHE_IMG" ]; then
+    exec i3lock -i "$CACHE_IMG" -e -f
+else
+    exec i3lock -c 11131a -e -f
+fi
