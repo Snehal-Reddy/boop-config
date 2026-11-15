@@ -202,9 +202,21 @@ def render():
     tree = run_i3_json("get_tree")
     ws_windows = collect_workspace_windows(tree)
 
+    # Deduplicate workspaces that share a number (e.g. accidental "1" alongside "1: Web"):
+    # prefer occupied workspaces over empty duplicates.
+    occupied_nums = {
+        ws.get("num")
+        for ws in workspaces
+        if ws.get("num", -1) > 0 and ws_windows.get(ws.get("name"))
+    }
+
     rendered = []
     for ws in sorted(workspaces, key=lambda w: (w.get("num", 999), w.get("name", ""))):
-        item = format_workspace(ws, ws_windows.get(ws.get("name"), []))
+        num = ws.get("num", -1)
+        apps = ws_windows.get(ws.get("name"), [])
+        if num in occupied_nums and not apps:
+            continue
+        item = format_workspace(ws, apps)
         if item:
             rendered.append(item)
 

@@ -248,6 +248,5 @@ exec --no-startup-id spotify &
 exec --no-startup-id /home/boopop/Applications/Obsidian.AppImage &
 
 
-# Switch to your preferred initial workspace (e.g., workspace 1)
-# Note: This uses the raw number '1' which is fine since $ws1 is also defined as '1'
-exec --no-startup-id i3-msg 'workspace 1'
+# Switch to your preferred initial workspace ($ws1)
+exec --no-startup-id i3-msg 'workspace "1: Web"'
