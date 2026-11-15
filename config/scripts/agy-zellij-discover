@@ -1,0 +1,127 @@
+#!/bin/sh
+# Zellij post_command_discovery_hook: normalize interactive `agy` commands to
+# `/home/boopop/.local/bin/agy-resurrect` while preserving non-agy commands intact.
+
+set -f
+
+case "$RESURRECT_COMMAND" in
+    "")
+        printf '\n'
+        exit 0
+        ;;
+esac
+
+# Split on ASCII whitespace without glob expansion (Zellij joins cmdline by spaces).
+set -- $RESURRECT_COMMAND
+[ $# -ge 1 ] || { printf '%s\n' "$RESURRECT_COMMAND"; exit 0; }
+
+cmd="$1"
+shift
+base="${cmd##*/}"
+
+# If Zellij saw `python3 /.../agy-resurrect ...`, unwrap the interpreter prefix.
+if [ "$base" = "python" ] || [ "$base" = "python3" ]; then
+    [ $# -ge 1 ] || { printf '%s\n' "$RESURRECT_COMMAND"; exit 0; }
+    cmd="$1"
+    shift
+    base="${cmd##*/}"
+fi
+
+# Also unwrap `bash --norc -ic ...` if Zellij somehow captured the brief shell wrapper.
+case "$base" in
+    agy|agy-resurrect) ;;
+    *)
+        printf '%s\n' "$RESURRECT_COMMAND"
+        exit 0
+        ;;
+esac
+
+fallback=""
+safe=""
+skip_multi=0
+expect_conv=0
+expect_enum=""
+seen_positional=0
+after_ddash=0
+
+for tok in "$@"; do
+    if [ "$after_ddash" = "1" ]; then
+        continue
+    fi
+    if [ "$expect_conv" = "1" ]; then
+        fallback="$tok"
+        expect_conv=0
+        continue
+    fi
+    if [ -n "$expect_enum" ]; then
+        case "$tok" in
+            -*)
+                expect_enum=""
+                ;;
+            *)
+                safe="$safe $expect_enum $tok"
+                expect_enum=""
+                continue
+                ;;
+        esac
+    fi
+    if [ "$skip_multi" = "1" ]; then
+        case "$tok" in
+            -*)
+                skip_multi=0
+                ;;
+            *)
+                continue
+                ;;
+        esac
+    fi
+
+    case "$tok" in
+        --)
+            after_ddash=1
+            ;;
+        -h|--help|-p|--print|--prompt|--output-format|--output-format=*)
+            printf '%s\n' "$RESURRECT_COMMAND"
+            exit 0
+            ;;
+        --conversation|--fallback-conv)
+            expect_conv=1
+            ;;
+        --conversation=*|--fallback-conv=*)
+            fallback="${tok#*=}"
+            ;;
+        --mode|--effort)
+            expect_enum="$tok"
+            ;;
+        --mode=*|--effort=*|--dangerously-skip-permissions|--sandbox|--remote-agent|--remote-control)
+            safe="$safe $tok"
+            ;;
+        --model|--agent|--project|--add-dir|--settings|--log-file|-i|--prompt-interactive|--json-schema|--input-format|--print-timeout)
+            skip_multi=1
+            ;;
+        --model=*|--agent=*|--project=*|--add-dir=*|--settings=*|--log-file=*|--prompt-interactive=*|--json-schema=*|--input-format=*|--print-timeout=*|-c|--continue|--new-project)
+            ;;
+        -*)
+            ;;
+        acp|agent|agents|changelog|help|install|mcp|mic-serve|models|plugin|plugins|remote-control|update)
+            if [ "$seen_positional" = "0" ]; then
+                printf '%s\n' "$RESURRECT_COMMAND"
+                exit 0
+            fi
+            ;;
+        *)
+            seen_positional=1
+            ;;
+    esac
+done
+
+case "$fallback" in
+    ""|*[!A-Za-z0-9_-]*)
+        fallback=""
+        ;;
+esac
+
+out="${HOME:-/home/boopop}/.local/bin/agy-resurrect"
+[ -n "$safe" ] && out="$out$safe"
+[ -n "$fallback" ] && out="$out --fallback-conv $fallback"
+printf '%s\n' "$out"

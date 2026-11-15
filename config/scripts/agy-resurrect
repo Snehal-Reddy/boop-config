@@ -1,0 +1,276 @@
+#!/usr/bin/env python3
+"""Zellij resurrection launcher for agy CLI panes."""
+
+from __future__ import annotations
+
+import os
+import shlex
+import sys
+import time
+from typing import Any
+
+SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
+
+import agy_zellij_lib as lib
+
+LOCK_RELEASE_POLL_SECS = 0.60
+LOCK_RELEASE_STEP_SECS = 0.05
+
+
+def parse_args(argv: list[str]) -> tuple[str | None, list[str]]:
+    """Extract --fallback-conv and strip stale resume flags from agy args."""
+    fallback_conv: str | None = None
+    cleaned: list[str] = []
+    i = 0
+    while i < len(argv):
+        tok = argv[i]
+        if tok == "--fallback-conv":
+            if i + 1 < len(argv):
+                fallback_conv = argv[i + 1]
+                i += 2
+                continue
+            i += 1
+            continue
+        if tok.startswith("--fallback-conv="):
+            fallback_conv = tok.split("=", 1)[1]
+            i += 1
+            continue
+        if tok == "--conversation":
+            i += 2 if i + 1 < len(argv) else 1
+            continue
+        if tok.startswith("--conversation=") or tok in ("-c", "--continue"):
+            i += 1
+            continue
+        cleaned.append(tok)
+        i += 1
+    if fallback_conv and not lib.SAFE_CONV_RE.match(fallback_conv):
+        fallback_conv = None
+    return fallback_conv, cleaned
+
+
+def exec_agy_in_bash(agy_args: list[str]) -> None:
+    """Launch agy in an interactive-job-control shell that drops to /bin/bash on exit."""
+    shell_cmd = (
+        f'{shlex.quote(lib.AGY_BIN)} "$@"; '
+        'rc=$?; ([ "$rc" -le 128 ] || [ "$rc" -eq 130 ]) && exec /bin/bash; exit "$rc"'
+    )
+    os.execv("/bin/bash", ["bash", "--norc", "-ic", shell_cmd, "agy-resurrect-shell", *agy_args])
+
+
+def pair_cost(r_pane: dict[str, Any], s_entry: dict[str, Any]) -> int:
+    """Compute assignment cost between a resurrected pane and a saved conversation entry."""
+    cost = 0
+    if int(r_pane["tab_position"]) != int(s_entry.get("tab_position", 0)):
+        cost += 1_000_000
+    if bool(r_pane["is_floating"]) != bool(s_entry.get("is_floating", False)):
+        cost += 100_000
+    r_cwd = r_pane.get("cwd")
+    s_cwd = s_entry.get("cwd")
+    if r_cwd and s_cwd and r_cwd != s_cwd:
+        cost += 10_000
+    dx = float(r_pane["cx"]) - float(s_entry.get("cx", 0.0))
+    dy = float(r_pane["cy"]) - float(s_entry.get("cy", 0.0))
+    cost += int((dx * dx + dy * dy) * 1000.0)
+    if str(r_pane["pane_id"]) != str(s_entry.get("pane_id", "")):
+        cost += 1
+    return cost
+
+
+def wait_for_unlock_if_safe(
+    conv_id: str,
+    session_name: str,
+    live_agy: dict[tuple[str, str], dict[str, Any]],
+) -> bool:
+    """Return True if conv_id is free (or becomes free within grace when no live pane owns it)."""
+    other_live_pids = {
+        info["pid"]
+        for (sess, _pid_str), info in live_agy.items()
+        if info.get("conv_id") == conv_id and sess == session_name
+    }
+    deadline = time.monotonic() + LOCK_RELEASE_POLL_SECS
+    while True:
+        held_locks = lib.get_presence_locks()
+        pids = held_locks.get(conv_id, [])
+        if not pids:
+            return True
+        if any(pid in other_live_pids for pid in pids):
+            return False
+        alive_pids = [pid for pid in pids if lib.pid_is_alive(pid)]
+        if not alive_pids:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(LOCK_RELEASE_STEP_SECS)
+
+
+def choose_conversation(
+    session_name: str,
+    my_pane_id: str,
+    fallback_conv: str | None,
+) -> str | None:
+    """Coordinate with sibling resurrecting panes and claim the right conversation ID."""
+    server_id = lib.get_server_id(session_name)
+    panes = lib.list_panes(session_name, timeout=2.0)
+    json_path, _ = lib.session_state_paths(session_name)
+
+    with lib.session_lock(session_name):
+        state = lib.read_state(json_path, session_name)
+        if server_id:
+            lib.reconcile_server_incarnation(state, server_id)
+
+        active: dict[str, dict[str, Any]] = state.get("active", {})
+        pending_pool: list[dict[str, Any]] = [
+            e
+            for e in state.get("pending_pool", [])
+            if isinstance(e, dict) and lib.conv_db_exists(e.get("conversation_id"))
+        ]
+        live_agy = lib.get_live_agy_panes()
+
+        # Deduplicate anything already claimed in active out of pending_pool.
+        claimed_convs = {
+            e["conversation_id"]
+            for pid_str, e in active.items()
+            if pid_str != my_pane_id and e.get("conversation_id")
+        }
+        pending_pool = [e for e in pending_pool if e["conversation_id"] not in claimed_convs]
+
+        pane_by_id: dict[str, dict[str, Any]] = {}
+        tab_dims: dict[int, tuple[int, int]] = {}
+        if panes is not None:
+            pane_by_id = {str(p["id"]): p for p in panes if not p.get("is_plugin")}
+            tab_dims = lib.compute_tab_dims(panes)
+
+        chosen_conv: str | None = None
+
+        # 1. Held-pane re-run: if this exact pane_id already owns an entry and isn't locked elsewhere.
+        own_entry = active.get(my_pane_id)
+        if own_entry and lib.conv_db_exists(own_entry.get("conversation_id")):
+            cid = own_entry["conversation_id"]
+            if wait_for_unlock_if_safe(cid, session_name, live_agy):
+                chosen_conv = cid
+
+        # 2. Match against pending_pool via exact min-cost bipartite assignment.
+        if chosen_conv is None and pending_pool:
+            r_panes: list[dict[str, Any]] = []
+            for pid_str, p in pane_by_id.items():
+                if pid_str != my_pane_id:
+                    if not lib.is_waiting_resurrect_pane(p):
+                        continue
+                    if pid_str in active:
+                        continue
+                    if (session_name, pid_str) in live_agy:
+                        continue
+                elif not lib.is_resurrect_pane(p):
+                    continue
+                tab_pos, is_float, cx, cy = lib.normalize_pane_geo(p, tab_dims)
+                r_panes.append(
+                    {
+                        "pane_id": pid_str,
+                        "tab_position": tab_pos,
+                        "is_floating": is_float,
+                        "cx": cx,
+                        "cy": cy,
+                        "cwd": p.get("pane_cwd"),
+                    }
+                )
+
+            if not any(r["pane_id"] == my_pane_id for r in r_panes):
+                my_p = pane_by_id.get(my_pane_id)
+                if my_p:
+                    tab_pos, is_float, cx, cy = lib.normalize_pane_geo(my_p, tab_dims)
+                    cwd = my_p.get("pane_cwd") or os.getcwd()
+                else:
+                    tab_pos, is_float, cx, cy = 0, False, 0.0, 0.0
+                    cwd = os.getcwd()
+                r_panes.append(
+                    {
+                        "pane_id": my_pane_id,
+                        "tab_position": tab_pos,
+                        "is_floating": is_float,
+                        "cx": cx,
+                        "cy": cy,
+                        "cwd": cwd,
+                    }
+                )
+
+            # Stable sort by pane_id so simultaneous invocations compute consistent assignments.
+            r_panes.sort(key=lambda r: (r["tab_position"], r["is_floating"], r["cx"], r["cy"], r["pane_id"]))
+            n_r = len(r_panes)
+            n_s = len(pending_pool)
+            size = max(n_r, n_s)
+            cost_matrix = [[lib.DUMMY_MATCH_PENALTY] * size for _ in range(size)]
+            for i in range(n_r):
+                for j in range(n_s):
+                    cost_matrix[i][j] = pair_cost(r_panes[i], pending_pool[j])
+
+            assignment = lib.hungarian_min_cost(cost_matrix)
+            my_idx = next(i for i, r in enumerate(r_panes) if r["pane_id"] == my_pane_id)
+            matched_j = assignment[my_idx]
+            if 0 <= matched_j < n_s:
+                cand = pending_pool[matched_j]["conversation_id"]
+                if wait_for_unlock_if_safe(cand, session_name, live_agy):
+                    chosen_conv = cand
+
+        # 3. Fallback to explicit --fallback-conv from pre-reboot cmdline if still unassigned.
+        if chosen_conv is None and fallback_conv and lib.conv_db_exists(fallback_conv):
+            if fallback_conv not in claimed_convs and wait_for_unlock_if_safe(
+                fallback_conv, session_name, live_agy
+            ):
+                chosen_conv = fallback_conv
+
+        # 4. Record claim (even if None!) before releasing lock so sibling panes skip my_pane_id.
+        now = time.time()
+        my_p = pane_by_id.get(my_pane_id)
+        if my_p:
+            tab_pos, is_float, cx, cy = lib.normalize_pane_geo(my_p, tab_dims)
+            cwd = my_p.get("pane_cwd") or os.getcwd()
+        else:
+            tab_pos, is_float, cx, cy = 0, False, 0.0, 0.0
+            cwd = os.getcwd()
+
+        if chosen_conv:
+            pending_pool = [e for e in pending_pool if e["conversation_id"] != chosen_conv]
+        state["pending_pool"] = pending_pool
+        active[my_pane_id] = {
+            "pane_id": my_pane_id,
+            "conversation_id": chosen_conv,
+            "cwd": cwd,
+            "tab_position": tab_pos,
+            "is_floating": is_float,
+            "cx": cx,
+            "cy": cy,
+            "claimed_at": now,
+            "updated_at": now,
+        }
+        state["active"] = active
+        lib.atomic_write_state(json_path, state)
+        return chosen_conv
+
+
+def main() -> int:
+    fallback_conv, agy_args = parse_args(sys.argv[1:])
+    session_name = os.environ.get("ZELLIJ_SESSION_NAME")
+    pane_id = os.environ.get("ZELLIJ_PANE_ID")
+
+    if not session_name or pane_id is None or pane_id == "":
+        os.execv(lib.AGY_BIN, [lib.AGY_BIN, *agy_args])
+        return 1
+
+    try:
+        chosen_conv = choose_conversation(session_name, str(pane_id), fallback_conv)
+    except Exception:
+        chosen_conv = fallback_conv if (fallback_conv and lib.conv_db_exists(fallback_conv)) else None
+
+    if chosen_conv:
+        final_args = ["--conversation", chosen_conv, *agy_args]
+    else:
+        final_args = agy_args
+
+    exec_agy_in_bash(final_args)
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

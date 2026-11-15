@@ -1,0 +1,209 @@
+#!/usr/bin/env python3
+"""Event-driven inotify watcher that keeps agy <-> Zellij pane mappings up to date."""
+
+from __future__ import annotations
+
+import ctypes
+import ctypes.util
+import errno
+import os
+import selectors
+import signal
+import struct
+import sys
+import time
+
+SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
+
+import agy_zellij_lib as lib
+
+# Linux inotify constants
+IN_OPEN = 0x00000020
+IN_CLOSE_WRITE = 0x00000008
+IN_CLOSE_NOWRITE = 0x00000010
+IN_CREATE = 0x00000100
+IN_DELETE = 0x00000200
+IN_DELETE_SELF = 0x00000400
+IN_MOVED_TO = 0x00000080
+IN_IGNORED = 0x00008000
+IN_ISDIR = 0x40000000
+IN_NONBLOCK = 0o4000
+IN_CLOEXEC = 0o2000000
+
+EVENT_HDR = struct.Struct("iIII")
+
+CLOSE_DEBOUNCE_SECS = 0.50
+OPEN_DEBOUNCE_SECS = 0.25
+
+
+def _load_libc() -> ctypes.CDLL:
+    name = ctypes.util.find_library("c") or "libc.so.6"
+    libc = ctypes.CDLL(name, use_errno=True)
+    libc.inotify_init1.argtypes = [ctypes.c_int]
+    libc.inotify_init1.restype = ctypes.c_int
+    libc.inotify_add_watch.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_uint32]
+    libc.inotify_add_watch.restype = ctypes.c_int
+    libc.inotify_rm_watch.argtypes = [ctypes.c_int, ctypes.c_int]
+    libc.inotify_rm_watch.restype = ctypes.c_int
+    return libc
+
+
+class InotifyWatcher:
+    """Manage inotify watches on agy presence locks and Zellij session_info dirs."""
+
+    def __init__(self) -> None:
+        self.libc = _load_libc()
+        self.fd = self.libc.inotify_init1(IN_NONBLOCK | IN_CLOEXEC)
+        if self.fd < 0:
+            err = ctypes.get_errno()
+            raise OSError(err, os.strerror(err))
+        self.wd_to_kind: dict[int, tuple[str, str]] = {}
+        self.path_to_wd: dict[str, int] = {}
+
+    def add_watch(self, path: str, mask: int, kind: str) -> int | None:
+        if path in self.path_to_wd:
+            return self.path_to_wd[path]
+        wd = self.libc.inotify_add_watch(self.fd, path.encode("utf-8"), mask)
+        if wd < 0:
+            return None
+        self.wd_to_kind[wd] = (kind, path)
+        self.path_to_wd[path] = wd
+        return wd
+
+    def setup_initial_watches(self) -> None:
+        os.makedirs(lib.PRESENCE_DIR, exist_ok=True)
+        os.makedirs(lib.ZELLIJ_CACHE_INFO_DIR, exist_ok=True)
+        self.add_watch(
+            lib.PRESENCE_DIR,
+            IN_OPEN | IN_CLOSE_WRITE | IN_CLOSE_NOWRITE | IN_CREATE | IN_MOVED_TO | IN_DELETE,
+            "presence",
+        )
+        self.add_watch(
+            lib.ZELLIJ_CACHE_INFO_DIR,
+            IN_CREATE | IN_MOVED_TO | IN_DELETE,
+            "cache_base",
+        )
+        self.scan_session_subdirs()
+
+    def scan_session_subdirs(self) -> bool:
+        added = False
+        try:
+            entries = list(os.scandir(lib.ZELLIJ_CACHE_INFO_DIR))
+        except OSError:
+            return False
+        mask = IN_CLOSE_WRITE | IN_MOVED_TO | IN_CREATE | IN_DELETE_SELF
+        for entry in entries:
+            if entry.is_dir(follow_symlinks=False):
+                if entry.path not in self.path_to_wd:
+                    if self.add_watch(entry.path, mask, "session_dir") is not None:
+                        added = True
+        return added
+
+    def read_events(self) -> list[tuple[int, int, str]]:
+        events: list[tuple[int, int, str]] = []
+        while True:
+            try:
+                buf = os.read(self.fd, 65536)
+            except BlockingIOError:
+                break
+            except OSError as exc:
+                if exc.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
+                    break
+                raise
+            if not buf:
+                break
+            offset = 0
+            while offset + EVENT_HDR.size <= len(buf):
+                wd, mask, _cookie, name_len = EVENT_HDR.unpack_from(buf, offset)
+                offset += EVENT_HDR.size
+                raw_name = buf[offset : offset + name_len]
+                offset += name_len
+                name = raw_name.split(b"\0", 1)[0].decode("utf-8", errors="ignore")
+                events.append((wd, mask, name))
+        return events
+
+    def close(self) -> None:
+        os.close(self.fd)
+
+
+def main() -> int:
+    running = True
+
+    def handle_stop(_signum: int, _frame: object) -> None:
+        nonlocal running
+        running = False
+
+    signal.signal(signal.SIGTERM, handle_stop)
+    signal.signal(signal.SIGINT, handle_stop)
+
+    watcher = InotifyWatcher()
+    watcher.setup_initial_watches()
+
+    sel = selectors.DefaultSelector()
+    sel.register(watcher.fd, selectors.EVENT_READ)
+
+    # Initial sync on startup.
+    try:
+        lib.sync_all()
+    except Exception:
+        pass
+
+    sync_deadline: float | None = None
+
+    def schedule(delay: float) -> None:
+        nonlocal sync_deadline
+        target = time.monotonic() + delay
+        if sync_deadline is None or target > sync_deadline:
+            sync_deadline = target
+
+    try:
+        while running:
+            timeout: float | None = None
+            if sync_deadline is not None:
+                timeout = max(0.0, sync_deadline - time.monotonic())
+            ready = sel.select(timeout=timeout)
+            if not running:
+                break
+
+            if ready:
+                for wd, mask, name in watcher.read_events():
+                    if mask & (IN_IGNORED | IN_DELETE_SELF):
+                        info = watcher.wd_to_kind.pop(wd, None)
+                        if info:
+                            watcher.path_to_wd.pop(info[1], None)
+                        continue
+
+                    kind, _path = watcher.wd_to_kind.get(wd, ("", ""))
+
+                    if mask & IN_ISDIR:
+                        # Ignore IN_OPEN|IN_ISDIR and IN_CLOSE*|IN_ISDIR to avoid os.scandir self-loops!
+                        if kind == "cache_base" and (mask & (IN_CREATE | IN_MOVED_TO)) and name:
+                            watcher.scan_session_subdirs()
+                            schedule(OPEN_DEBOUNCE_SECS)
+                        continue
+
+                    if kind == "presence":
+                        if mask & (IN_CLOSE_WRITE | IN_CLOSE_NOWRITE | IN_DELETE):
+                            schedule(CLOSE_DEBOUNCE_SECS)
+                        elif mask & (IN_OPEN | IN_CREATE | IN_MOVED_TO):
+                            schedule(OPEN_DEBOUNCE_SECS)
+                    elif kind == "session_dir":
+                        if mask & (IN_CLOSE_WRITE | IN_MOVED_TO | IN_CREATE):
+                            schedule(CLOSE_DEBOUNCE_SECS)
+
+            if sync_deadline is not None and time.monotonic() >= sync_deadline:
+                sync_deadline = None
+                try:
+                    lib.sync_all()
+                except Exception:
+                    pass
+    finally:
+        sel.close()
+        watcher.close()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
