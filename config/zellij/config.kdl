@@ -484,7 +484,7 @@ osc8_hyperlinks true
  
 // How often in seconds sessions are serialized
 // 
-// serialization_interval 10000
+serialization_interval 10
  
 // Enable or disable writing of session metadata to disk (if disabled, other sessions might not know
 // metadata info on this session)
@@ -625,6 +625,7 @@ osc8_hyperlinks true
 // can be useful for removing wrappers around commands
 // Note: be sure to escape backslashes and similar characters properly
 // post_command_discovery_hook "echo $RESURRECT_COMMAND | sed <your_regex_here>"
+post_command_discovery_hook "$HOME/.local/bin/agy-zellij-discover"
 
 // Number of async worker tasks to spawn per active client.
 //
