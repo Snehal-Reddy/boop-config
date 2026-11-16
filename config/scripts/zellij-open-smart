@@ -112,6 +112,28 @@ def read_osc52_clipboard(timeout: float = 0.18) -> str:
     return ""
 
 
+def read_clipboard() -> str:
+    """Read clipboard via OSC 52, falling back to xclip on X11 if empty."""
+    val = read_osc52_clipboard()
+    if val:
+        return val
+    xclip = shutil.which("xclip")
+    if xclip:
+        try:
+            proc = subprocess.run(
+                [xclip, "-o", "-selection", "clipboard"],
+                capture_output=True,
+                text=True,
+                timeout=0.3,
+                check=False,
+            )
+            if proc.returncode == 0 and proc.stdout.strip():
+                return proc.stdout.strip()
+        except Exception:
+            pass
+    return ""
+
+
 def get_micro_processes() -> list[tuple[str, list[str]]]:
     """Return [(cwd, args), ...] for running micro processes owned by current user."""
     results = []
@@ -202,13 +224,18 @@ def detect_micro_active_file(screen_text: str) -> tuple[str | None, str | None]:
 
 
 def get_recent_jetski_file_links() -> dict[str, str]:
-    """Map basename -> full path from the most recently active Jetski transcripts."""
+    """Map basename -> full path from the most recently active agy / Jetski transcripts."""
     mapping: dict[str, str] = {}
-    brain_dir = os.path.join(HOME, ".gemini", "jetski", "brain")
-    if not os.path.isdir(brain_dir):
+    transcripts: list[str] = []
+    for sub in ("antigravity-cli", "jetski"):
+        brain_dir = os.path.join(HOME, ".gemini", sub, "brain")
+        if os.path.isdir(brain_dir):
+            transcripts.extend(
+                glob.glob(os.path.join(brain_dir, "*", ".system_generated", "logs", "transcript.jsonl"))
+            )
+    if not transcripts:
         return mapping
 
-    transcripts = glob.glob(os.path.join(brain_dir, "*", ".system_generated", "logs", "transcript.jsonl"))
     transcripts.sort(key=lambda p: os.path.getmtime(p), reverse=True)
 
     uri_re = re.compile(r"file://(/[A-Za-z0-9_./\-+@%,#=~!\[\]]+)")
@@ -393,8 +420,8 @@ def main() -> None:
 
     cwds = get_shell_cwds()
 
-    # 2. Check clipboard via OSC 52
-    clip_raw = read_osc52_clipboard()
+    # 2. Check clipboard via OSC 52 (with X11 xclip fallback)
+    clip_raw = read_clipboard()
     clip_path, clip_line = parse_target(clip_raw, cwds)
 
     # 3. Extract links displayed on the active terminal pane
