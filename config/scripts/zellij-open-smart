@@ -333,6 +333,8 @@ def open_in_viewer(filepath: str, line: str | None) -> None:
     is_markdown = (lower.endswith(".md") or lower.endswith(".markdown")) and os.path.isfile(LEAF_BIN)
 
     if is_markdown:
+        # Unset KITTY_PID so leaf runs `micro` inline (Ctrl+E) and returns to leaf on quit
+        os.environ.pop("KITTY_PID", None)
         os.execvp(LEAF_BIN, [LEAF_BIN, "--watch", filepath])
     else:
         cmd = [MICRO_BIN]

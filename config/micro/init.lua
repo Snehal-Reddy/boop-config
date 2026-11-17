@@ -36,9 +36,9 @@ function previewMarkdown(bp)
     end
     local leaf = resolveLeaf()
     if go_os.Getenv("ZELLIJ") ~= "" then
-        shell.ExecCommand("zellij", "run", "-d", "down", "-c", "--", leaf, "--watch", file)
+        shell.ExecCommand("zellij", "run", "-d", "down", "-c", "--", "sh", "-c", 'unset KITTY_PID; exec "$1" --watch "$2"', "sh", leaf, file)
     else
-        shell.RunInteractiveShell(string.format("%q --watch %q", leaf, file), false, false)
+        shell.RunInteractiveShell(string.format("unset KITTY_PID; %q --watch %q", leaf, file), false, false)
     end
 end
 
@@ -50,7 +50,7 @@ function previewMarkdownFloating(bp)
     end
     local leaf = resolveLeaf()
     if go_os.Getenv("ZELLIJ") ~= "" then
-        shell.ExecCommand("zellij", "run", "-f", "-c", "--", leaf, "--watch", file)
+        shell.ExecCommand("zellij", "run", "-f", "-c", "--", "sh", "-c", 'unset KITTY_PID; exec "$1" --watch "$2"', "sh", leaf, file)
     else
         previewMarkdown(bp)
     end
